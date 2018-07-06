@@ -73,6 +73,7 @@ jobs:
         - which flake8
         - conda activate test-environment
         - conda list
+        - ls -l /home/travis/miniconda/envs/test-environment
         - ls -l $HOME/miniconda/envs/test-environment/bin
         - cat $HOME/miniconda/envs/test-environment/bin/flake8
         - doit test_flakes
