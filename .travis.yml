@@ -61,7 +61,14 @@ jobs:
 
     - <<: *default
       env: DESC="py2 flakes" PYENV_VERSION=2.7
-      script: doit test_flakes
+      script:
+        - echo $PATH      
+        - conda info
+        - conda info --envs
+        - which python
+        - python --version
+        - which flake8
+        - doit test_flakes
 
     ########## DOCS ##########
 
