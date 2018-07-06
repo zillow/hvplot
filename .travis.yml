@@ -65,9 +65,14 @@ jobs:
         - echo $PATH      
         - conda info
         - conda info --envs
+        - conda list
         - which python
         - python --version
+        - hash -r
+        - which python
         - which flake8
+        - conda activate test-environment
+        - conda list
         - doit test_flakes
 
     ########## DOCS ##########
