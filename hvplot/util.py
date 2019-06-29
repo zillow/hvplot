@@ -293,26 +293,3 @@ def process_xarray(data, x, y, by, groupby, use_dask, persist, gridded, label, v
         if groupby is None:
             groupby = [c for c in dims if c not in by+[x, y]]
     return data, x, y, by, groupby
-
-
-def order_magn(x):
-    if x == 0:
-        return 0
-    else:
-        return np.floor(np.log10(np.abs(x)))
-
-
-def roundn(x, base=None, method='up'):
-    if base is None:
-        oom = order_magn(x)
-        scale = 10 ** oom
-        if oom > 0:
-            scale = np.log10(scale)
-        base = scale * 5
-
-    if method == 'up':
-        return np.ceil(x / base) * base
-    elif method == 'down':
-        return np.floor(x / base) * base
-    else:
-        return np.round(x / base) * base
