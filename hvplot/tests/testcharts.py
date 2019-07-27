@@ -2,7 +2,7 @@ from unittest import SkipTest
 from parameterized import parameterized
 
 from holoviews import NdOverlay, Store
-from holoviews.element import Curve, Area, Scatter, Points
+from holoviews.element import Curve, Area, Scatter, Points, HeatMap
 from holoviews.element.comparison import ComparisonTestCase
 from hvplot import patch
 
@@ -32,6 +32,13 @@ class TestChart2D(ComparisonTestCase):
         plot = self.df.hvplot(x='index', y='y', c='x', kind=kind)
         self.assertEqual(plot, element(self.df, ['index', 'y'], ['x']))
 
+    def test_heatmap_2d_index_columns(self):
+        plot = self.df.hvplot.heatmap()
+        self.assertEqual(plot, HeatMap((['x', 'y'], [0, 1, 2], self.df.values),
+                                       ['columns', 'index'], 'value'))
+
+
+
 class TestChart1D(ComparisonTestCase):
 
     def setUp(self):
@@ -43,6 +50,12 @@ class TestChart1D(ComparisonTestCase):
         self.df = pd.DataFrame([[1, 2], [3, 4], [5, 6]], columns=['x', 'y'])
         self.cat_df = pd.DataFrame([[1, 2, 'A'], [3, 4, 'B'], [5, 6, 'C']],
                                    columns=['x', 'y', 'category'])
+        self.cat_only_df = pd.DataFrame([['A', 'a'], ['B', 'b'], ['C', 'c']],
+                                        columns=['upper', 'lower'])
+        self.time_df = pd.DataFrame({
+            'time': pd.date_range('1/1/2000', periods=10, tz='UTC'),
+            'A': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            'B': 'abcdefghij'})
 
     @parameterized.expand([('line', Curve), ('area', Area), ('scatter', Scatter)])
     def test_wide_chart(self, kind, element):
@@ -127,3 +140,59 @@ class TestChart1D(ComparisonTestCase):
         plot = self.cat_df.hvplot.hist('y', legend='left')
         opts = Store.lookup_options('bokeh', plot, 'plot')
         self.assertEqual(opts.kwargs['legend_position'], 'left')
+
+    @parameterized.expand([('line', Curve), ('area', Area), ('scatter', Scatter)])
+    def test_only_includes_num_chart(self, kind, element):
+        plot = self.cat_df.hvplot(kind=kind)
+        obj = NdOverlay({'x': element(self.cat_df, 'index', 'x').redim(x='value'),
+                         'y': element(self.cat_df, 'index', 'y').redim(y='value'),
+                        }, 'Variable')
+        self.assertEqual(plot, obj)
+
+    @parameterized.expand([('line', Curve), ('area', Area), ('scatter', Scatter)])
+    def test_includes_str_if_no_num_chart(self, kind, element):
+        plot = self.cat_only_df.hvplot(kind=kind)
+        obj = NdOverlay({'upper': element(self.cat_only_df, 'index', 'upper').redim(upper='value'),
+                         'lower': element(self.cat_only_df, 'index', 'lower').redim(lower='value'),
+                        }, 'Variable')
+        self.assertEqual(plot, obj)
+
+    def test_time_df_sorts_on_plot(self):
+        scrambled = self.time_df.sample(frac=1)
+        plot = scrambled.hvplot(x='time')
+        assert (plot.data == self.time_df).all().all()
+        assert (plot.data.time.diff()[1:].astype('int') > 0).all()
+
+    def test_time_df_does_not_sort_on_plot_if_sort_date_off(self):
+        scrambled = self.time_df.sample(frac=1)
+        plot = scrambled.hvplot(x='time', sort_date=False)
+        assert (plot.data == scrambled).all().all()
+        assert not (plot.data.time.diff()[1:].astype('int') > 0).all()
+
+    def test_time_df_sorts_on_plot_using_index_as_x(self):
+        df = self.time_df.set_index('time')
+        scrambled = df.sample(frac=1)
+        plot = scrambled.hvplot()
+        assert (plot.data['time'] == df.index).all()
+        assert (plot.data.time.diff()[1:].astype('int') > 0).all()
+
+    def test_time_df_does_not_sort_on_plot_if_sort_date_off_using_index_as_x(self):
+        df = self.time_df.set_index('time')
+        scrambled = df.sample(frac=1)
+        plot = scrambled.hvplot(sort_date=False)
+        assert (plot.data.time == scrambled.index).all().all()
+        assert not (plot.data.time.diff()[1:].astype('int') > 0).all()
+
+
+class TestChart1DDask(TestChart1D):
+
+    def setUp(self):
+        super().setUp()
+        try:
+            import dask.dataframe as dd
+        except:
+            raise SkipTest('Dask not available')
+        patch('dask')
+        self.df = dd.from_pandas(self.df, npartitions=2)
+        self.cat_df = dd.from_pandas(self.cat_df, npartitions=3)
+        self.cat_only_df = dd.from_pandas(self.cat_only_df, npartitions=1)

@@ -227,6 +227,12 @@ def is_xarray(data):
     from xarray import DataArray, Dataset
     return isinstance(data, (DataArray, Dataset))
 
+def is_xarray_groupby(data):
+    if not check_library(data, 'xarray'):
+        return False
+    from xarray.core.groupby import DataArrayGroupBy, DatasetGroupBy
+    return isinstance(data, (DataArrayGroupBy, DatasetGroupBy))
+
 
 def process_intake(data, use_dask):
     if data.container not in ('dataframe', 'xarray'):
@@ -252,6 +258,19 @@ def process_xarray(data, x, y, by, groupby, use_dask, persist, gridded, label, v
         name = data.name or label or value_label
         dataset = data.to_dataset(name=name)
 
+    all_vars = list(other_dims) if other_dims else []
+    for var in [x, y, by, groupby]:
+        if isinstance(var, list):
+            all_vars.extend(var)
+        elif isinstance(var, str):
+            all_vars.append(var)
+
+    if not gridded:
+        not_found = [var for var in all_vars if var not in list(dataset.data_vars) + list(dataset.coords)]
+        _, extra_vars, extra_coords = process_derived_datetime(dataset, not_found)
+        dataset = dataset.assign_coords(**{var: dataset[var] for var in extra_coords})
+        dataset = dataset.assign(**{var: dataset[var] for var in extra_vars})
+
     data_vars = list(dataset.data_vars)
     ignore = (by or []) + (groupby or [])
     dims = [c for c in dataset.coords if dataset[c].shape != () and c not in ignore][::-1]
@@ -261,6 +280,13 @@ def process_xarray(data, x, y, by, groupby, use_dask, persist, gridded, label, v
         data = dataset
         if len(dims) < 2:
             dims += [dim for dim in list(data.dims)[::-1] if dim not in dims]
+        if not (x or y):
+            for c in dataset.coords:
+                axis = dataset[c].attrs.get('axis', '')
+                if axis.lower() == 'x':
+                    x = c
+                elif axis.lower() == 'y':
+                    y = c
         if not (x or y):
             x, y = index_dims[:2] if len(index_dims) > 1 else dims[:2]
         elif x and not y:
@@ -287,9 +313,36 @@ def process_xarray(data, x, y, by, groupby, use_dask, persist, gridded, label, v
         elif not x and not y:
             x, y = dims[0], data_vars
 
+        for var in [x, y]:
+            if isinstance(var, list):
+                all_vars.extend(var)
+            elif isinstance(var, str):
+                all_vars.append(var)
+
+        covered_dims = []
+        for var in all_vars:
+            if var in dataset.coords:
+                covered_dims.extend(dataset[var].dims)
+        leftover_dims = [dim for dim in dims if dim not in covered_dims + all_vars]
+
         if by is None:
-            by = [c for c in dims if c not in (x, y)]
-            if len(by) > 1: by = []
+            by = leftover_dims if len(leftover_dims) == 1 else []
         if groupby is None:
-            groupby = [c for c in dims if c not in by+[x, y]]
+            groupby = [c for c in leftover_dims if c not in by]
     return data, x, y, by, groupby
+
+
+def process_derived_datetime(data, not_found):
+    from pandas.api.types import is_datetime64_any_dtype as isdate
+    extra_vars = []
+    extra_coords = []
+    for var in not_found:
+        if '.' in var:
+            derived_from = var.split('.')[0]
+            if isdate(data[derived_from]):
+                if derived_from in data.coords:
+                    extra_coords.append(var)
+                else:
+                    extra_vars.append(var)
+    not_found = [var for var in not_found if var not in extra_vars + extra_coords]
+    return not_found, extra_vars, extra_coords
