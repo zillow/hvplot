@@ -472,6 +472,8 @@ class HoloViewsConverter(object):
             divergent = cmin < 0 and cmax > 0
             if divergent:
                 symmetric = True
+            else:
+                symmetric = False
 
         return symmetric
 
